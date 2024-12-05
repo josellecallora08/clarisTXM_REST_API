@@ -1,0 +1,6 @@
+.env
+*.json
+*.jsonl
+*.jsonl.gz
+*.jsonl.tar.gz
+*.jsonl.tar.gz.enc
