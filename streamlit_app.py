@@ -143,7 +143,7 @@ if st.button("Generate Capabilities"):
         
         # Generate L0 and L1 capabilities
         chunks = []
-        for _ in range(10):  # Two iterations for 2 L0 capabilities each
+        for _ in range(5):  # Two iterations for 2 L0 capabilities each
             try:
                 chunk = generate_capabilities_chunk(industry,chunks, chunk_size=2)
                 chunks.append(chunk)
