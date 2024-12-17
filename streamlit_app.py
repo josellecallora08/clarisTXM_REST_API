@@ -20,10 +20,16 @@ def sanitize_response(response_text):
     """Sanitize Gemini response text."""
     return response_text.replace("```json", "").replace("```", "").strip()
 
-def generate_capabilities_chunk(industry, chunk_size=2):
+def generate_capabilities_chunk(industry,chunks, chunk_size=2):
     """Generate L0 and L1 capabilities."""
     prompt = f"""
+     Here are the L0 capabilities already generated: {chunks}
     Generate {chunk_size} unique L0 capabilities for the {industry} industry. Each L0 must have 20 unique L1 capabilities.
+    
+    1. Each L0 capability and its corresponding 20 L1 capabilities are distinct from each other.
+    2. There should be no duplication of L0 or L1 capabilities within the entire output.
+    3. Each L1 capability must be linked to only one L0 capability.
+    
     Format the output strictly as valid JSON:
     {{
         "industry": "{industry}",
@@ -137,9 +143,9 @@ if st.button("Generate Capabilities"):
         
         # Generate L0 and L1 capabilities
         chunks = []
-        for _ in range(2):  # Two iterations for 2 L0 capabilities each
+        for _ in range(10):  # Two iterations for 2 L0 capabilities each
             try:
-                chunk = generate_capabilities_chunk(industry, chunk_size=2)
+                chunk = generate_capabilities_chunk(industry,chunks, chunk_size=2)
                 chunks.append(chunk)
             except Exception as e:
                 st.error(f"Error during generation: {str(e)}")
