@@ -1,7 +1,9 @@
-from flask import Flask, request, jsonify
+import csv
+from flask import Flask, request, jsonify, Response
 import google.generativeai as genai
 import json
 import os
+from io import StringIO
 from dotenv import load_dotenv
 import groq
 
@@ -143,15 +145,73 @@ Ensure that the JSON output is strictly valid, with no placeholders or comments.
                         l1_item["L2_capabilities"] = l2_item["L2_capabilities"]
         return l1_capabilities  # Return if no match is found
 
+    def generate_csv(self, complete_capabilities):
+        """
+        Generate a CSV file based on the completed final JSON structure.
+        """
+        rows = []
+
+        for l0_item in complete_capabilities["L0_capabilities"]:
+            industry = complete_capabilities["industry"]
+            industry_description = complete_capabilities["industry_description"]
+            
+            # Iterate over L1 capabilities
+            for l1_item in l0_item["L1_capabilities"]:
+                l0_capability = l0_item["L0_capability"]
+                l0_capability_description = l0_item["L0_capability_description"]
+                
+                # Iterate over L2 capabilities
+                for l2_item in l1_item.get("L2_capabilities", []):
+                    l1_capability = l1_item["L1_capability"]
+                    l1_capability_description = l1_item["L1_capability_description"]
+                    l2_capability = l2_item["L2_capability"]
+                    l2_capability_description = l2_item["L2_capability_description"]
+                    
+                    # Append each row to the list
+                    rows.append([
+                        industry, 
+                        industry_description, 
+                        l0_capability, 
+                        l0_capability_description, 
+                        "0",  # This can be static for L0
+                        l1_capability, 
+                        l1_capability_description, 
+                        "1",  # This can be static for L1
+                        l2_capability, 
+                        l2_capability_description, 
+                        "2"   # This can be static for L2
+                    ])
+
+        # Create a CSV file from the rows list
+        output = StringIO()
+        csv_writer = csv.writer(output)
+        
+        # Writing headers to CSV
+        headers = [
+            "Industry", "Industry Description", "L0 Capability", 
+            "L0 Capability Description", "L0 Capability Level",
+            "L1 Capability", "L1 Capability Description", "L1 Capability Level",
+            "L2 Capability", "L2 Capability Description", "L2 Capability Level"
+        ]
+        csv_writer.writerow(headers)
+        
+        # Write all data rows
+        csv_writer.writerows(rows)
+        
+        # Get CSV content
+        output.seek(0)
+        return output.getvalue()
+  
     
 @app.route('/generate-capabilities', methods=['GET'])
 def test_gemini():
     generator = CapabilityGenerator()
-    industry = "Digital Commerce"
+    print(request.args.get('industry'))
+    industry = request.args.get('industry')
 
     # Generate capabilities in chunks
     chunks = []
-    for _ in range(10):  # 4 chunks of 5 L0 capabilities = 20 total
+    for _ in range(1):  # 4 chunks of 5 L0 capabilities = 20 total
         try:
             chunk = generator.generate_capabilities_chunk(industry, chunks, chunk_size=2)
             chunks.append(chunk)
@@ -192,9 +252,12 @@ def test_gemini():
     
     generator.merge_l1_to_l2(complete_capabilities, l2_chunks)
     
-    return jsonify(complete_capabilities)
-  
-  
+    csv_content = generator.generate_csv(complete_capabilities)
+    response = Response(csv_content, mimetype="text/csv")
+    response.headers["Content-Disposition"] = "attachment; filename=capabilities.csv"
+    return response
+
+
 @app.route('/capabilities', methods=['GET'])  
 def sample():
     """
@@ -246,6 +309,7 @@ def sample():
                                                            
                                                            """)
     
+
 # end def
 if __name__ == "__main__":
     app.run(debug=True)
