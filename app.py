@@ -1,5 +1,8 @@
+import psutil
+
+
 import csv
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, stream_with_context
 import google.generativeai as genai
 import json
 import os
@@ -23,8 +26,7 @@ class CapabilityGenerator:
         """
         Sanitize the response text by removing unwanted elements like code fences.
         """
-        sanitized = response_text.replace("```json", "").replace("```", "")
-        return sanitized.strip()
+        return response_text.replace("```json", "").replace("```", "").strip()
 
     def generate_capabilities_chunk(self, industry: str, chunks: list, chunk_size=5):
         """
@@ -69,10 +71,35 @@ Ensure that the JSON output is strictly valid, with no placeholders or comments.
 
         try:
             response = self.model.generate_content(prompt)
-            return self.sanitize_response(response.text)
+            return json.loads(self.sanitize_response(response.text))
         except Exception as e:
             raise RuntimeError("API exhausted or an error occurred while generating content") from e
-    
+        
+    def stream_csv(self, complete_capabilities):
+        """
+        Stream CSV data to save memory.
+        """
+        def generate_rows():
+            headers = [
+                "Industry", "Industry Description", "L0 Capability",
+                "L0 Capability Description", "L0 Level",
+                "L1 Capability", "L1 Capability Description", "L1 Level"
+            ]
+            yield ','.join(headers) + '\n'
+            
+            for l0 in complete_capabilities["L0_capabilities"]:
+                for l1 in l0["L1_capabilities"]:
+                    row = [
+                        complete_capabilities["industry"],
+                        "Industry Description",
+                        l0["L0_capability"],
+                        l0["L0_capability_description"], "0",
+                        l1["L1_capability"],
+                        l1["L1_capability_description"], "1"
+                    ]
+                    yield ','.join(row) + '\n'
+                    
+        return stream_with_context(generate_rows())
     
     def generate_l2_capabilities(self, l1_capabilities):
         """
@@ -200,15 +227,18 @@ Ensure that the JSON output is strictly valid, with no placeholders or comments.
         
         # Get CSV content
         output.seek(0)
-        return output.getvalue()
-  
+        return output.getvalue()    
+
+    def log_memory_usage(self, step):
+        memory_usage = psutil.Process(os.getpid()).memory_info().rss / 1_048_576  # in MB
+        print(f"Memory usage after {step}: {memory_usage} MB")
     
 @app.route('/generate-capabilities', methods=['GET'])
 def test_gemini():
     generator = CapabilityGenerator()
     print(request.args.get('industry'))
     industry = request.args.get('industry')
-
+    generator.log_memory_usage("start")
     # Generate capabilities in chunks
     chunks = []
     for _ in range(1):  # 4 chunks of 5 L0 capabilities = 20 total
@@ -223,17 +253,18 @@ def test_gemini():
         complete_capabilities = generator.merge_capabilities(chunks)
     except ValueError as e:
         return jsonify({"error": "Failed to merge capabilities", "details": str(e)}), 500
-
+    generator.log_memory_usage("merge_capabilities")
     # This will return a JSON response containing the L1 capabilities of all L0 capabilities 
     # from the complete capabilities generated. It extracts the L1 capabilities from the 
     # complete_capabilities dictionary and formats them as a JSON response.
     all_l1_capabilities = []
     for l0 in complete_capabilities["L0_capabilities"]:
         all_l1_capabilities.extend(l0["L1_capabilities"])
+    generator.log_memory_usage("generate_l2_capabilities")
     # l2_capabilities = generator.generate_l2_capabilities(all_l1_capabilities)
-    
     l0_count = len(all_l1_capabilities)
     print(f"L0 count: {l0_count}")
+    
     l2_chunks = []
     # This will return a JSON response containing the L2 capabilities of the first L1 capability 
     for index, l1 in enumerate(all_l1_capabilities):  # Use enumerate to get index
@@ -250,11 +281,14 @@ def test_gemini():
         final_l2_chunks = transformed_item
         l2_chunks.append(final_l2_chunks)
     
+    generator.log_memory_usage("merge_l1_to_l2")
     generator.merge_l1_to_l2(complete_capabilities, l2_chunks)
-    
+    generator.log_memory_usage("generate_csv")
     csv_content = generator.generate_csv(complete_capabilities)
+    generator.log_memory_usage("generate_csv")
     response = Response(csv_content, mimetype="text/csv")
     response.headers["Content-Disposition"] = "attachment; filename=capabilities.csv"
+    generator.log_memory_usage("end")
     return response
 
 
@@ -265,7 +299,6 @@ def sample():
     """
     this = CapabilityGenerator()
     industry = request.args.get('industry')
-   
    
     prompt = f"""
     You are an expert in the field of capabilities for the {industry} industry.
