@@ -20,7 +20,7 @@ def sanitize_response(response_text):
     """Sanitize Gemini response text."""
     return response_text.replace("```json", "").replace("```", "").strip()
 
-def generate_capabilities_chunk(industry,chunks, chunk_size=2):
+def generate_capabilities_chunk(industry, chunks, chunk_size=2):
     """Generate L0 and L1 capabilities."""
     prompt = f"""
      Here are the L0 capabilities already generated: {chunks}
@@ -77,8 +77,12 @@ def merge_l2_capabilities(complete_capabilities):
     for l0 in complete_capabilities["L0_capabilities"]:
         for l1 in l0["L1_capabilities"]:
             time.sleep(1)  # Simulate processing time
-            l2_capabilities = generate_l2_capabilities(l1)
-            l1["L2_capabilities"] = l2_capabilities
+            try:
+                l2_capabilities = generate_l2_capabilities(l1)
+                l1["L2_capabilities"] = l2_capabilities
+            except Exception as e:
+                st.error(f"Error generating L2 capabilities for {l1['L1_capability']}: {str(e)}")
+                continue  # Skip to the next L1 capability
             current += 1
             progress_percent = (current / total_l1) * 100
             elapsed_time = time.time() - start_time
@@ -145,7 +149,7 @@ if st.button("Generate Capabilities"):
         chunks = []
         for _ in range(5):  # Two iterations for 2 L0 capabilities each
             try:
-                chunk = generate_capabilities_chunk(industry,chunks, chunk_size=2)
+                chunk = generate_capabilities_chunk(industry, chunks, chunk_size=2)
                 chunks.append(chunk)
             except Exception as e:
                 st.error(f"Error during generation: {str(e)}")
